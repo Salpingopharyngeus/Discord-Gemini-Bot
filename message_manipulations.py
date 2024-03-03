@@ -1,4 +1,5 @@
 import datetime
+import aiohttp
 
 #Discord message limit is 2000 characters, so this will split the message
 #into 2000 character chunks and send multiple messages if needed
@@ -44,21 +45,67 @@ def trim_to_fit_limit(question, context, max_tokens, token_per_char):
         # If within limit, return the original question and context
         return question, context
 
-async def fetch_thread_history(thread):
+async def fetch_thread_history(thread, extended=False):
     """
     Fetches the history of a thread and concatenates the messages into a single text.
     """
     # Initialize an empty list to store messages
     messages = []
-    
-    # Asynchronously iterate over the message history
-    async for message in thread.history(limit=100):  # Adjust limit as needed
-        messages.append(message)
+
+    #if extended is true, we only want to fetch everything before the ***: delimiter
+    if extended:
+        async for message in thread.history(limit=150):
+            if message.content.startswith('***'):
+                break
+            messages.append(message)
+    else:
+        # Asynchronously iterate over the message history
+        async for message in thread.history(limit=100):  # Adjust limit as needed
+            messages.append(message)
     
     # Concatenate messages into a single text, newest first
     # Note: 'reversed(messages)' to ensure the oldest messages are at the beginning
     history_text = " ".join([message.content for message in reversed(messages)])
     return history_text
+
+async def construct_full_query(channel, current_message):
+    # Fetch the last 100 messages before the current one and reverse them
+    messages = channel.history(limit=100, before=current_message)
+    for message in messages:
+        print(message.content)
+    messages_reversed = list(reversed(messages))
+
+    # Initialize variables to store the full query and the starting index
+    full_query = ""
+    start_index = None
+
+    # Find the index of the message that starts with '***'
+    for index, message in enumerate(messages_reversed):
+        if message.content.startswith('***'):
+            start_index = index
+            break
+
+    # If a starting message was found, construct the full query
+    if start_index is not None:
+        for message in messages_reversed[start_index:]:
+            # Strip the '***' only from the first message
+            content = message.content.lstrip('***') if message.content.startswith('***') else message.content
+            full_query += content + " "
+
+    return full_query.strip()  # Return the full query without trailing spaces
+
+import aiohttp
+
+async def download_attachment(attachment):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(attachment.url) as resp:
+            if resp.status == 200:
+                # Assuming the attachment is a text file; adjust decoding as necessary
+                content = await resp.text()
+                return content
+            else:
+                raise Exception(f"Failed to download attachment: {attachment.filename}")
+
 
 
 
